@@ -235,7 +235,10 @@
 
     // B. Wave quality
     var qT = clamp((Tp - 4) / 6, 0, 1);
-    var qClean = br.clean === null ? clamp(1 - (steep - 0.008) / 0.03, 0.2, 0.9) : br.clean;
+    // wave-model swell/wind-sea split is unreliable in the Med (often labels everything "swell"),
+    // so blend it with a steepness-based cleanliness estimate
+    var qSteep = clamp(1 - (steep - 0.008) / 0.03, 0.2, 0.9);
+    var qClean = br.clean === null ? qSteep : 0.5 * br.clean + 0.5 * qSteep;
     var domD = br.dom ? br.dom.d : at(z.dir, i);
     var qDir = domD === null ? 0.7 : Math.max(0, Math.cos(rad(angdiff(domD, spot.facing)))) * (inSector(domD, spot.swellWin[0], spot.swellWin[1]) ? 1 : 0.6);
     var Q = 0.45 * qT + 0.35 * qClean + 0.20 * qDir;
@@ -257,10 +260,10 @@
       W = clamp(W, 0, 1);
     }
 
-    var core = (0.25 + 0.75 * W) * (0.3 + 0.7 * Q);
+    var core = (0.25 + 0.75 * W) * (0.15 + 0.85 * Q);
     var score = 10 * Math.pow(clamp(F, 0, 1), 0.8) * S * core;
     if (h < 0.25) score = Math.min(score, 0.8);
-    if (score >= 8.5 && !(Q >= 0.75 && W >= 0.85 && S >= 0.95 && F >= 0.95)) score = 8.4;
+    if (score >= 8.5 && !(Q >= 0.8 && W >= 0.85 && S >= 0.95 && F >= 0.95 && Tp >= 9 && h >= prof.opt[0])) score = 8.4;
     return { t: z.t[i], h: h, lo: h * 0.75, hi: h * 1.2, tp: Tp, dir: domD, hs: hs, P: P,
       wind: ws, gust: wg, wdir: wd, rel: rel, F: F, S: S, Q: Q, W: W, qT: qT, clean: br.clean,
       score: Math.round(clamp(score, 0, 10) * 10) / 10 };
