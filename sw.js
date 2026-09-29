@@ -1,6 +1,6 @@
 /* Service worker: app files network-first (revalidated, so updates show on next open), cache fallback offline.
  * Forecast API: network-first with cached fallback. Fonts: cache-first. */
-const VERSION = "gs-v3";
+const VERSION = "gs-v4";
 const SHELL = ["./", "index.html", "app.js", "engine.js", "manifest.webmanifest", "icon-180.png", "icon-192.png", "icon-512.png"];
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));

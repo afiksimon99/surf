@@ -32,12 +32,14 @@
   /* ---------- data: Open-Meteo, straight from the phone ---------- */
   var MARINE = "wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_peak_period,secondary_swell_wave_height,secondary_swell_wave_direction,secondary_swell_wave_period,wind_wave_height,wind_wave_direction,wind_wave_peak_period,sea_surface_temperature";
   var WX = "wind_speed_10m,wind_direction_10m,wind_gusts_10m,precipitation";
+  var M_NOW = "wave_height,wave_direction,wave_period,wave_peak_period,swell_wave_height,swell_wave_direction,swell_wave_peak_period,secondary_swell_wave_height,secondary_swell_wave_direction,secondary_swell_wave_period,wind_wave_height,wind_wave_direction,wind_wave_peak_period,sea_surface_temperature";
+  var W_NOW = "wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,weather_code,is_day";
   async function fetchForecast() {
     var ids = Object.keys(E.ZONES), Z = ids.map(function (k) { return E.ZONES[k]; });
     var mUrl = "https://marine-api.open-meteo.com/v1/marine?latitude=" + Z.map(function (z) { return z.lat; }).join(",") + "&longitude=" + Z.map(function (z) { return z.lon; }).join(",") +
-      "&hourly=" + MARINE + "&timezone=Asia%2FJerusalem&forecast_days=7&cell_selection=sea";
+      "&hourly=" + MARINE + "&current=" + M_NOW + "&timezone=Asia%2FJerusalem&forecast_days=7&cell_selection=sea";
     var wUrl = "https://api.open-meteo.com/v1/forecast?latitude=" + Z.map(function (z) { return z.windLat; }).join(",") + "&longitude=" + Z.map(function (z) { return z.windLon; }).join(",") +
-      "&hourly=" + WX + "&daily=sunrise,sunset&wind_speed_unit=kn&timezone=Asia%2FJerusalem&forecast_days=7&past_days=2";
+      "&hourly=" + WX + "&current=" + W_NOW + "&daily=sunrise,sunset&wind_speed_unit=kn&timezone=Asia%2FJerusalem&forecast_days=7&past_days=2";
     var res = await Promise.all([fetch(mUrl), fetch(wUrl)]);
     if (!res[0].ok || !res[1].ok) throw new Error("HTTP " + res[0].status + "/" + res[1].status);
     var marine = await res[0].json(), wx = await res[1].json();
@@ -64,6 +66,13 @@
         return Math.round(s * 10) / 10;
       });
       r.daily = { date: wx[n].daily.time, sunrise: wx[n].daily.sunrise, sunset: wx[n].daily.sunset, rain48: rain48 };
+      // real-time block: 15-minute model nowcast (Open-Meteo "current")
+      var mc = marine[n].current, wc = wx[n].current;
+      if (mc && wc) r.now = { t: mc.time, wt: wc.time, hs: mc.wave_height, tp: mc.wave_peak_period != null ? mc.wave_peak_period : mc.wave_period, dir: mc.wave_direction,
+        swH: mc.swell_wave_height, swT: mc.swell_wave_peak_period, swD: mc.swell_wave_direction,
+        s2H: mc.secondary_swell_wave_height, s2T: mc.secondary_swell_wave_period, s2D: mc.secondary_swell_wave_direction,
+        wwH: mc.wind_wave_height, wwT: mc.wind_wave_peak_period, wwD: mc.wind_wave_direction, sst: mc.sea_surface_temperature,
+        wind: wc.wind_speed_10m, gust: wc.wind_gusts_10m, wdir: wc.wind_direction_10m, air: wc.temperature_2m, code: wc.weather_code, isDay: wc.is_day };
       if (!r.hs.some(function (v) { return v !== null; })) throw new Error("אין נתוני גלים לאזור " + E.ZONES[id].nameHe);
       zones[id] = r;
     });
@@ -72,11 +81,69 @@
   async function refresh(force) {
     if (state.loading) return;
     var age = state.forecast ? Date.now() - Date.parse(state.forecast.generatedAt) : Infinity;
-    if (!force && age < 45 * 60e3) return;
+    if (!force && age < 10 * 60e3) return;
     state.loading = true; state.error = null; renderFresh();
-    try { state.forecast = await fetchForecast(); LS.set("forecast", state.forecast); if (force) toast("התחזית עודכנה"); }
+    try { state.forecast = await fetchForecast(); LS.set("forecast", state.forecast); if (force) toast("עודכן – מצב הים עכשיו"); }
     catch (e) { state.error = navigator.onLine === false ? "אין חיבור – מוצגת התחזית האחרונה" : "העדכון נכשל – מוצגת התחזית האחרונה"; }
     state.loading = false; render();
+  }
+
+  /* ---------- real-time ("now") ---------- */
+  var NOW_KEYS = ["hs", "tp", "dir", "swH", "swT", "swD", "s2H", "s2T", "s2D", "wwH", "wwT", "wwD", "wind", "gust", "wdir", "sst"];
+  function nowHour() { return new Date().toLocaleString("sv-SE", { timeZone: "Asia/Jerusalem" }).slice(0, 13).replace(" ", "T") + ":00"; }
+  // One-row zone from the nowcast (or, for older cached data, the current forecast hour)
+  function nowZone(z) {
+    var one = { t: [], daily: z.daily }, src = z.now, i = -1;
+    if (!src) { i = z.t.indexOf(nowHour()); if (i < 0) return null; }
+    NOW_KEYS.forEach(function (k) { one[k] = [src ? (src[k] == null ? null : src[k]) : (z[k] ? z[k][i] : null)]; });
+    one.t = [src ? src.t : z.t[i]];
+    return one;
+  }
+  function hourIdx(z, offsetH) {
+    var d = new Date(Date.now() + offsetH * 3600e3).toLocaleString("sv-SE", { timeZone: "Asia/Jerusalem" }).slice(0, 13).replace(" ", "T") + ":00";
+    return z.t.indexOf(d);
+  }
+  function nowResults() {
+    var b = currentBoard(), f = state.forecast; if (!b || !f) return [];
+    var prof = E.boardProfile(b, rider());
+    return E.SPOTS.map(function (sp) {
+      var z = f.zones[sp.zone]; if (!z) return null;
+      var one = nowZone(z); if (!one) return null;
+      var r = E.scoreHour(sp, one, 0, prof); if (!r) return null;
+      r.label = E.label(r.score); r.spot = sp;
+      var j = hourIdx(z, 3), later = j >= 0 ? E.scoreHour(sp, z, j, prof) : null;
+      r.trend = later ? later.score - r.score : null;
+      r.src = z.now ? "live" : "hour"; r.air = z.now ? z.now.air : null; r.isDay = z.now ? z.now.isDay : null;
+      return r;
+    }).filter(Boolean).sort(function (a, b) { return b.score - a.score; });
+  }
+  function trendTxt(t) {
+    if (t == null) return "";
+    if (t >= 0.7) return '<span class="trend up">↑ משתפר</span>';
+    if (t <= -0.7) return '<span class="trend down">↓ נחלש</span>';
+    return '<span class="trend">יציב</span>';
+  }
+  function renderNow() {
+    var el = $("now"); if (!el) return;
+    var res = nowResults();
+    if (!res.length) { el.innerHTML = ""; return; }
+    var top = res[0], prof = E.boardProfile(currentBoard(), rider());
+    var t = top.t ? top.t.slice(11, 16) : "", dark = top.isDay === 0;
+    var rows = res.map(function (r) {
+      return '<li><div class="l1"><span class="nm">' + esc(r.spot.nameHe) + '</span><b class="pill" style="background:' + col(r.label.key) + '">' + r.score.toFixed(1) + '</b></div>' +
+        '<div class="l2 small muted"><span class="mono">' + fmt(r.lo) + '–' + fmt(r.hi) + ' מ\' · ' + Math.round(r.tp) + 's</span>' +
+        (r.wind != null ? '<span>' + arrowSvg(r.wdir, E.compass(r.wdir)) + ' ' + Math.round(r.wind) + ' קשר ' + E.windTypeHe(r.rel) + '</span>' : '') + '</div></li>';
+    }).join("");
+    el.innerHTML = '<div class="now">' +
+      '<div class="now-head"><span class="live"><i></i>עכשיו · <bdi class="mono">' + esc(t) + '</bdi></span>' +
+      (top.src === "hour" ? '<span class="small muted">לפי התחזית השעתית</span>' : '<span class="small muted">מתעדכן בכל רענון</span>') + '</div>' +
+      '<div class="now-main"><div class="now-score" style="color:' + col(top.label.key) + '">' + top.score.toFixed(1) + '</div>' +
+      '<div><span class="rating-pill" style="background:' + col(top.label.key) + '">' + esc(top.label.he) + '</span>' +
+      '<h3>' + esc(top.spot.nameHe) + ' ' + trendTxt(top.trend) + '</h3>' +
+      '<div class="small">' + E.reasons(top, prof).map(function (x) { return esc(x.t); }).join(" · ") + '</div>' +
+      (dark ? '<div class="small muted" style="margin-top:4px">חשוך עכשיו – הדירוג מתאר את מצב הים בלבד</div>' : '') +
+      '</div></div>' +
+      '<details class="now-all"><summary>כל החופים עכשיו</summary><ul>' + rows + '</ul></details></div>';
   }
 
   /* ---------- rendering ---------- */
@@ -211,7 +278,7 @@
   function render() {
     renderFresh(); renderBoardBar(); renderDayBar();
     var res = state.date ? dayResults(state.date) : [];
-    renderHero(res); renderSpots(res); renderBoards(); renderSettings();
+    renderNow(); renderHero(res); renderSpots(res); renderBoards(); renderSettings();
   }
 
   /* ---------- forms ---------- */
@@ -276,6 +343,18 @@
     if (!LS.get("boards", null)) LS.set("boards", state.boards);
     installTip(); render(); refresh(false);
     document.addEventListener("visibilitychange", function () { if (!document.hidden) refresh(false); });
+    // pull-to-refresh (iOS home-screen apps have none built in)
+    var y0 = null, ptr = $("ptr");
+    window.addEventListener("touchstart", function (e) { y0 = window.scrollY <= 0 ? e.touches[0].clientY : null; }, { passive: true });
+    window.addEventListener("touchmove", function (e) {
+      if (y0 == null) return; var dy = e.touches[0].clientY - y0;
+      if (dy > 10) { ptr.hidden = false; ptr.style.height = Math.min(64, dy / 2) + "px"; ptr.textContent = dy > 110 ? "שחרר לרענון" : "משוך לרענון"; }
+    }, { passive: true });
+    window.addEventListener("touchend", function (e) {
+      if (y0 == null) return; var dy = (e.changedTouches[0] ? e.changedTouches[0].clientY : 0) - y0; y0 = null;
+      ptr.hidden = true; ptr.style.height = "0px";
+      if (dy > 110) refresh(true);
+    });
     if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(function () {});
   }
   boot();

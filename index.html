@@ -117,6 +117,24 @@ a{color:var(--accent)}
 .checks{display:flex;gap:14px;flex-wrap:wrap;font-size:14px}
 .checks label{display:flex;gap:6px;align-items:center}
 .hint{font-size:12.5px;color:var(--muted);margin:0}
+.now{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.now-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.live{display:inline-flex;align-items:center;gap:6px;font-weight:700;font-size:13px;letter-spacing:.04em;color:var(--neg)}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--neg);box-shadow:0 0 0 0 var(--neg);animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 color-mix(in srgb,var(--neg) 60%,transparent)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.now-main{display:grid;grid-template-columns:auto minmax(0,1fr);gap:14px;align-items:center}
+.now-score{font-family:var(--display);font-weight:700;font-size:64px;line-height:.8;font-variant-numeric:tabular-nums}
+.now h3{font-size:18px;margin:4px 0 2px;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.trend{font-size:12px;font-weight:600;color:var(--muted)} .trend.up{color:var(--pos)} .trend.down{color:var(--neg)}
+.now-all summary{font-size:13px;font-weight:600;color:var(--accent);cursor:pointer}
+.now-all ul{list-style:none;margin:8px 0 0;padding:0;display:flex;flex-direction:column}
+.now-all li{display:flex;flex-direction:column;gap:2px;padding:8px 0;border-top:1px solid var(--line)}
+.now-all .l1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.now-all .l2{display:flex;gap:12px;flex-wrap:wrap}
+.now-all .nm{font-weight:600;font-size:14px}
+.now-all .pill{color:#fff;border-radius:6px;padding:2px 8px;font-family:var(--mono);font-size:13px;min-width:40px;text-align:center}
+.ptr{position:fixed;top:0;left:0;right:0;z-index:8;display:flex;align-items:flex-end;justify-content:center;padding-top:env(safe-area-inset-top,0px);font-size:12.5px;color:var(--muted);background:var(--bg);overflow:hidden}
+@media (prefers-reduced-motion:reduce){.live i{animation:none}}
 .toast{position:fixed;bottom:calc(env(safe-area-inset-bottom,0px) + 78px);left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:10px;font-size:14px;z-index:9;max-width:calc(100% - 32px)}
 details.how{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 16px}
 details.how summary{font-weight:600;cursor:pointer}
@@ -134,6 +152,7 @@ nav.tabs button[aria-selected="true"]{color:var(--accent)}
 </style>
 </head>
 <body>
+<div id="ptr" class="ptr" hidden></div>
 <div class="wrap">
   <header class="top">
     <div class="brand">
@@ -150,7 +169,8 @@ nav.tabs button[aria-selected="true"]{color:var(--accent)}
       <div class="label-row"><span class="eyebrow">הגלשן לדירוג</span></div>
       <div class="bar" id="boardBar" style="margin-top:6px"></div>
     </section>
-    <section aria-label="יום"><div class="bar" id="dayBar"></div></section>
+    <section id="now" aria-label="מצב הים עכשיו" aria-live="polite"></section>
+    <section aria-label="יום"><div class="label-row" style="margin-bottom:6px"><span class="eyebrow">תחזית לפי ימים</span></div><div class="bar" id="dayBar"></div></section>
     <section id="hero"></section>
     <section class="spots" id="spots" aria-label="חופים"></section>
     <details class="how">
